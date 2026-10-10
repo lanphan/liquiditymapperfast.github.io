@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { SLICER_DEFAULTS, SlicerDetector, type SlicerEpisode, type SlicerKind, type SlicerOptions } from '../src/shared/slicers.ts';
+import { GRACE_MS, SLICER_DEFAULTS, SlicerDetector, type SlicerEpisode, type SlicerKind, type SlicerOptions } from '../src/shared/slicers.ts';
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 const arg = (name: string, fallback?: string): string => {
@@ -30,13 +30,22 @@ const PATH = market === 'spot' ? '/api/v3/aggTrades' : '/fapi/v1/aggTrades';
 const PACE_MS = market === 'spot' ? 60 : 500; // the perpetual's trades weigh 20 of 2,400 a minute
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 interface AggTrade { a: number; p: string; q: string; T: number; m: boolean }
+/** A page of aggregate trades as Binance documents it, else null: a page that is not one must never be cached as an empty hour. */
+function readPage(value: unknown): AggTrade[] | null {
+  if (!Array.isArray(value)) return null;
+  for (const r of value as Partial<AggTrade>[]) {
+    if (typeof r !== 'object' || r === null || !Number.isInteger(r.a) || !Number.isFinite(r.T) || typeof r.m !== 'boolean'
+      || !(Number(r.p) > 0) || !(Number(r.q) > 0)) return null;
+  }
+  return value as AggTrade[];
+}
 async function get(query: string): Promise<AggTrade[]> {
   for (let attempt = 0; attempt < 6; attempt++) {
     for (const host of HOSTS) {
       await sleep(PACE_MS);
       try {
         const r = await fetch(host + PATH + query);
-        if (r.ok) return await r.json() as AggTrade[];
+        if (r.ok) { const page = readPage(await r.json()); if (page) return page; throw new Error(`${host}${PATH}${query}: not a page of trades`); }
         if (r.status === 429 || r.status === 418) { console.error(`${host}: ${r.status}, waiting a minute`); await sleep(60_000); }
         else throw new Error(`${host}${PATH}${query}: ${r.status} ${(await r.text()).slice(0, 200)}`);
       } catch (error) { if (attempt === 5) throw error; }
@@ -88,10 +97,18 @@ for (let start = Math.floor(from / HOUR) * HOUR; start < to; start += HOUR) {
     if (Math.floor(o.t / 1000) !== second) { second = Math.floor(o.t / 1000); for (const d of detectors) d.detector.step(o.t); }
     for (const d of detectors) d.detector.add([o]);
   }
-  for (const d of detectors) { d.detector.step(Math.min(start + HOUR, to)); for (const e of d.detector.takeFresh()) d.episodes.set(e.id, e); }
+  for (const d of detectors) {
+    d.detector.step(Math.min(start + HOUR, to));
+    for (const e of d.detector.takeFresh()) {
+      if (!(e.clip > 0 && e.rate > 0 && e.total > 0)) console.error(`\n${d.name}: a snapshot without its numbers: ${JSON.stringify(e)}`);
+      d.episodes.set(e.id, e);
+    }
+  }
   process.stderr.write(`\r${new Date(start).toISOString().slice(0, 13)}h  ${orders} orders  ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 }
 process.stderr.write('\n');
+// The minute ending at `to` is judged once the clock is past it and the grace, as it would be live.
+for (const d of detectors) { d.detector.step(to + GRACE_MS); for (const e of d.detector.takeFresh()) d.episodes.set(e.id, e); }
 
 const iso = (t: number) => new Date(t).toISOString().slice(5, 16).replace('T', ' ');
 const days = (to - from) / DAY;
@@ -104,6 +121,7 @@ for (const d of detectors) {
   for (const e of all) {
     console.log(`  ${e.side.padEnd(4)} onset ${iso(e.onset)} alert ${iso(e.alertAt).slice(6)} end ${e.end ? iso(e.end).slice(6) : 'running'}`
       + ` clips $${(e.lo / 1e3).toFixed(2)}-${(e.hi / 1e3).toFixed(2)}K (median ${(e.clip / 1e3).toFixed(2)}K) ${e.rate.toFixed(1)}/min $${(e.usdPerMin / 1e3).toFixed(0)}K/min`
+      + ` (average $${(e.total / ((e.last - e.onset) / 60_000 + 1) / 1e3).toFixed(0)}K/min)`
       + ` gap ${e.gap}s ${(100 * e.gapShare).toFixed(0)}% dir ${(100 * e.direction).toFixed(0)}% total $${(e.total / 1e6).toFixed(2)}M${e.exact ? ' exact' : ''}${e.repeat ? ' (repeat)' : ''}`);
   }
   report.push({ variant: d.name, announced: announced.length, perDay: announced.length / days, most24h: most, episodes: all });
