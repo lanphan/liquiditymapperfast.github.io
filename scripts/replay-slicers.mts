@@ -56,7 +56,12 @@ async function get(query: string): Promise<AggTrade[]> {
 /** One hour of trades as [time, sold (1) or bought (0), USD], from the cache or from Binance. */
 async function hour(start: number): Promise<[number, number, number][]> {
   const file = path.join(cache, `${market}-${symbol}-${start}.json`);
-  if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')) as [number, number, number][];
+  if (fs.existsSync(file)) {
+    const rows: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const ok = Array.isArray(rows) && rows.every(r => Array.isArray(r) && r.length === 3 && Number.isFinite(r[0]) && (r[1] === 0 || r[1] === 1) && r[2] > 0);
+    if (!ok) throw new Error(`${file} is not an hour of trades as this script writes them: delete it to read the hour again`);
+    return rows as [number, number, number][];
+  }
   const rows: [number, number, number][] = [];
   let page = await get(`?symbol=${symbol}&startTime=${start}&endTime=${start + HOUR - 1}&limit=1000`);
   while (page.length) {
@@ -72,7 +77,7 @@ async function hour(start: number): Promise<[number, number, number][]> {
 
 // The settings compared: Argus's exact kind alone, the wide kind alone at a few rates and directions, and both (the defaults).
 const exact = SLICER_DEFAULTS.kinds.find(k => k.name === 'exact')!, wide = SLICER_DEFAULTS.kinds.find(k => k.name === 'wide')!;
-const variants: [string, Partial<SlicerOptions>][] = [['both (defaults)', {}], ['exact only', { kinds: [exact] }]];
+const variants: [string, Partial<SlicerOptions>][] = [['both (defaults)', {}], ['both, no missed minute while building (Argus)', { pendingSlack: 0 }], ['exact only', { kinds: [exact] }]];
 for (const bucket of [0.25, 0.4, 0.5, 0.6]) for (const minRate of [10, 20]) for (const minDirection of [0.85, 0.9]) {
   const kind: SlicerKind = { ...wide, bucket, minRate, minDirection };
   variants.push([`wide only, buckets ${bucket}, rate ${minRate}, direction ${minDirection}`, { kinds: [kind] }]);
