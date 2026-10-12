@@ -92,6 +92,25 @@ grow to 8 GB here); the recorders alone, after a collection, hold 589 MB against
 
 All twelve routes compared answered byte for byte (or, for JSON, to 1e-9) the same.
 
+## The page's refresh asks for the tail alone (2026-10-12, later)
+
+The page asked for its whole window again every 30 s (`heat-pane.ts`), where only the newest windows can have changed: a recorded minute
+does not. Now `Hub.loadColumns` keeps, with the columns it holds, where they had all settled when they were asked for (`settledBefore`:
+the windows that ended two minutes or more before the answer, room for the recorder's last sample of a minute and a clock a little off),
+and a refresh asks only from there, while the columns held still cover the view. The worker splices the answer in (`columnsTail`,
+`withTail` in `worker/column-store.ts`: the columns before its start kept, those from it replaced). A view wholly in the past asks nothing
+at all. A test checks, on a real recorder at three steps, that a full answer and a tail asked half an hour later equal one full answer asked
+then. On the copy of the recording, every market in parts of 12:
+
+| view | whole window, every 30 s (before) | tail (now) |
+|---|---|---|
+| 1-day view at 1 min | 97 ms, 93 MB | 0.4 ms, 0.05 MB |
+| 2-day view at 2 min | 965 ms, 95 MB | 0.9 ms, 0.05 MB |
+| week view at 8 min | 3,853 ms, 51 MB | 2.6 ms, 0.05 MB |
+
+The worker pays for it instead: splicing copies what it holds, 35-51 ms off the page's main thread every 30 s (a raster already copies
+the columns it draws each time it is made).
+
 ## Review (Codex, gpt-6.1-sol at max)
 
 Two kinds of pass: one briefed with the invariants above and the code (five rounds), one Codex's own review of the branch, which ran
@@ -141,6 +160,4 @@ Left as they are:
   day of minutes, so asking again for a Range over two old days reads part of it again (0.8 s; it was 0.2 s). The panel asks again only
   for a live selection, so this is a person selecting the same old days twice.
 - **The footprint still parses the week at start** (its sums and statistics are built from the rows): 5.3 s against 6.1 s.
-- **The page asks for its whole window every 30 s**, where only its newest minutes can have changed. Asking for the tail alone would cut
-  every refresh (old server or new) to milliseconds; it is the next step, and a change to the page, not the server.
 - Merged windows of days that have ended could be stored, so a first look at the week after a start would not merge it again.
