@@ -108,7 +108,9 @@ tests of its own). Fixed, each with a test that fails on the version before the 
   time (at most 5,000 fills and 50,000 orders; a fill the feed hands over again on every pass is kept once, so its copies cannot crowd
   out a connector's, and taken once). A batch of orders reads every minute it needs before it counts any, and waits while fills wait
   (an order is counted in the row of its first fill's price). The server offers the footprint its orders on every pass, none drained or
-  not, `close()` tries what waits once more, and a waiting fill whose minute the retention has passed is let go with it. Only a fill or
+  not, `close()` tries what waits once more, and a waiting fill whose minute the retention has passed is let go with it (counted as seen,
+  so a copy handed over again does not bring the minute back). The 5,000 fills that may wait and the feed's last 5,000 trades (the most
+  that can be handed over again) together stay inside the 10,000 fills each instrument's seen set keeps. Only a fill or
   order more than a day late reads the store at all, so this is a path for a store that fails, not for every day.
 - A prune whose store failed to say what it holds had already moved the cutoff: `coverage` and the answers disagreed. The extent is read
   first. Memory begins at a whole minute (never before the retention), so a memory shorter than a minute (tests) still reopens the
