@@ -141,8 +141,27 @@ asked for at its largest size, and the deeper WebSocket channels were tried live
 | Hyperliquid | 20 bands at three significant figures | 20 bands whatever the grouping (two figures: $1 000 bands to 23 %) | the same 20 | yes |
 | Bybit, Bitget, Coinbase, Binance | already the deepest the venue sends | no deeper than the WebSocket | | |
 
-What was done with it: Deribit, Kraken, Bitfinex, HTX and Aster take their deeper WebSocket books, and OKX (perpetual and spot) keeps its
-400-level WebSocket book near the price and fills in the levels beyond it from `books-full` (the section after this one, once built).
+What was done with it: Deribit, Kraken, Bitfinex and HTX take their deeper WebSocket books. OKX (perpetual and spot) keeps its 400-level
+WebSocket book near the price and fills in the levels beyond it from `books-full`, and Aster does the same with its REST depth 1 000
+(`shared/far-book.ts`): read every 15 s while the book is live (and, in a page, while it is shown), used only strictly beyond the WebSocket
+book's deepest level on each side as it is when the book is valued, and left off once older than 60 s. Aster's diff stream was not taken:
+it would need Binance's buffered sync rebuilt for one optional venue, and the REST depth reaches as far. OKX is read by the page and the
+server; Aster only by the server (the page has no Aster). A connector the server runs for its trades alone reads no far book.
+
+Measured after the change (BTC, 2026-10-12, live, the books as valued for the map; dollars within 50 bp):
+
+| Venue | Before | After |
+| --- | --- | --- |
+| OKX perp | 63 / 58 levels, 8 / 7 bp, $28.7M | 434 / 426 levels, 88 / 85 bp, $126.6M |
+| OKX spot | 115 / 177 levels, 15 / 26 bp, $12.4M | 479 / 459 levels, 113 / 122 bp, $19.2M |
+| Deribit | 20 bands of $10 a side | 638 / 615 levels, out to the 50 % limit (82 changes in 30 s, no gap) |
+| Aster | the top 20 levels | REST depth: 1 000 levels a side, 265 / 183 bp, answered in 0.45 s (the server's merge is covered by tests, not measured live) |
+| Kraken, Bitfinex, HTX | as in the table above | the deeper WebSocket book (depth 1 000, `len` 250, `step0`); not re-measured in the app |
+
+What it costs: a page with an OKX book open reads about 220 KB every 15 s for each (perpetual and spot), about 50 MB an hour for both, and
+nothing while the tab is hidden. Deeper books also mean more levels in each recorded minute; the recorder's floor (bins under $10K are not
+kept once a column has 300) bounds that, but the page's IndexedDB recording will grow somewhat. The recorded map changes texture from this
+change on: Deribit BTC in single levels instead of $10 bands, OKX and Aster with walls far from the price they did not have before.
 
 ### Gate.io and MEXC are left as they are
 
