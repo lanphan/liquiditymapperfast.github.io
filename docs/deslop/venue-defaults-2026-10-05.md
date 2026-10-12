@@ -118,3 +118,50 @@ Asked for by a visitor. BTC perpetuals, measured on 2026-10-08 at about 15:20 UT
 - **BloFin.** A clean, browser-friendly feed (OKX's API shape), but about 1 % of perpetual volume with a book that would distort the map. Not added.
 - **Bitunix.** Its book socket sends the whole book many times a second (about 1.5 MB/s, twenty times the defaults together), its trades have no id (they cannot be told apart after a reconnect) and whole-second times. Not added to the browser; it stays an optional connector on the server, as before.
 - MEXC spot: $0.47B a day, thin (about $2M within 50 bp), protobuf WebSocket. Not added.
+
+## 2026-10-12: How deep each venue's book can be had, and Gate.io and MEXC
+
+A venue that looks thin on the map is often one whose WebSocket sends only the levels near the price. Each venue's public REST book was
+asked for at its largest size, and the deeper WebSocket channels were tried live (BTC, 2026-10-12, scripts in the session's scratchpad:
+`rest-depth-probe.mjs`, `ws-depth-probe.mjs`). Reach is from the mid in basis points; dollars are within 50 bp.
+
+| Venue | What this app took | REST at its largest | Deeper WebSocket | Page can read the REST |
+| --- | --- | --- | --- | --- |
+| OKX perp | `books`: 400 levels, 7 bp, $29.5M | `books-full`: 5 000 levels, 91 / 80 bp, $147.5M (223 KB) | none (400 is OKX's WebSocket cap) | yes |
+| OKX spot | `books`: 400 levels, 25 / 13 bp | `books-full`: 5 000 levels, 132 / 103 bp | none | yes |
+| Deribit | 20 bands of $10 a side, 23 / 27 bp | 1 194 / 934 levels, the whole book | `book.BTC-PERPETUAL.100ms`: the whole book, snapshot then changes | yes |
+| Kraken | depth 100 (122 levels after merging), 11 bp | 500 levels, 168 / 204 bp | depth 1 000: 389 / 378 bp | yes |
+| Bitfinex | `len` 25 (50 levels), 7 bp | 250 levels, 147 / 179 bp | `len` 250: 141 / 176 bp | no |
+| HTX | `step6`, 29 levels, 3 / 2 bp | `step0`: 150 levels, 24 / 15 bp | `step0` / `size_150`: 150 levels, 21 / 16 bp | yes |
+| Aster | the top 20 levels, 2 bp | 1 000 levels, 247 / 186 bp | `@depth@100ms` diffs on a REST snapshot, as Binance | yes |
+| Gate.io perp | 100 levels, 6 / 5 bp | 300 at most (a larger `limit` is refused), 16 / 12 bp, 3.4 s to answer | none deeper | yes |
+| MEXC perp | 20 levels, about 4 bp | 1 500 levels (whatever the `limit`), 115 / 90 bp, $309M | none | no |
+| Crypto.com | 10 levels | 50 levels, 6 / 5 bp | 50 levels, 6 / 5 bp | yes |
+| KuCoin | 50 levels | 100 levels, 6 / 1 bp; the whole book needs an API key | none without a key | no |
+| Hyperliquid | 20 bands at three significant figures | 20 bands whatever the grouping (two figures: $1 000 bands to 23 %) | the same 20 | yes |
+| Bybit, Bitget, Coinbase, Binance | already the deepest the venue sends | no deeper than the WebSocket | | |
+
+What was done with it: Deribit, Kraken, Bitfinex, HTX and Aster take their deeper WebSocket books, and OKX (perpetual and spot) keeps its
+400-level WebSocket book near the price and fills in the levels beyond it from `books-full` (the section after this one, once built).
+
+### Gate.io and MEXC are left as they are
+
+Both are large by the volume they report, and both could be made deeper. Neither is worth it, for different reasons.
+
+- **MEXC distorts the map.** Its REST book (1 500 levels, $309M within 50 bp) is three to five times Binance's near the price, on about a
+  quarter of Binance's trading (2026-10-08: live trade flow 25 % of Binance's). Taken whole it would dominate every wall on the map
+  without reflecting where trading happens. A page cannot read it either (no CORS header), so the website would show it shallow and the
+  server deep. It stays an optional venue with its 20 WebSocket levels.
+- **Gate.io adds little and reports too much.** Measured side by side on 2026-10-12 (BTC perpetual, one moment for the books, the same five
+  minutes for the trades):
+
+  | | Binance | Bybit | OKX | Gate.io |
+  | --- | ---: | ---: | ---: | ---: |
+  | Book within 5 / 10 / 15 bp | $21.6M / $50.2M / $95.1M | $28.4M / $57.4M / $57.4M | $23.4M / $47.3M / $76.9M | $7.1M / $13.7M / $15.2M |
+  | Traded in the last five minutes | $18.7M | | | $4.0M (21 % of Binance) |
+  | 24 h volume as reported | $10.47B | | | $4.53B (43 % of Binance) |
+
+  Its book is in proportion to its trading (3.4 dollars resting within 10 bp per dollar traded in those five minutes, against Binance's
+  2.7), so it would not distort the map as MEXC would. But the deepest book it publishes ends about 15 bp from the price (a REST request
+  for more than 300 levels is refused), its REST took 3.4 s to answer, and the volume it reports is about twice what it was seen to
+  trade. A deeper Gate.io would add a thin band of liquidity near the price and no walls. It stays optional, as it is.
