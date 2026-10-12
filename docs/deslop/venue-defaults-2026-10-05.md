@@ -156,7 +156,15 @@ Measured after the change (BTC, 2026-10-12, live, the books as valued for the ma
 | OKX spot | 115 / 177 levels, 15 / 26 bp, $12.4M | 479 / 459 levels, 113 / 122 bp, $19.2M |
 | Deribit | 20 bands of $10 a side | 638 / 615 levels, out to the 50 % limit (82 changes in 30 s, no gap) |
 | Aster | the top 20 levels | REST depth: 1 000 levels a side, 265 / 183 bp, answered in 0.45 s (the server's merge is covered by tests, not measured live) |
-| Kraken, Bitfinex, HTX | as in the table above | the deeper WebSocket book (depth 1 000, `len` 250, `step0`); not re-measured in the app |
+| Bitfinex, HTX | as in the table above | the deeper WebSocket book (`len` 250, `step0`); not re-measured in the app |
+| Kraken | depth 100 | depth 100 again (see below) |
+
+Kraken at depth 1 000 was taken back the same evening. Kraken sends about 250 book messages a second (194 at depth 100, 249 at 1 000,
+measured 2026-10-12), and its depth session sorted the whole book three times and parsed every kept level's decimal text again on each:
+2.7 ms an update at 1 000 levels. Karl's server stopped answering altogether (no route in 8 s, 1.5 GB held, 72 % of a CPU profile in the
+Kraken session), and a server from that commit with the deep venues on did not answer at all; with the fix below, about 20 ms at a quarter
+of a core. The session now sorts once per side (116 µs an update at depth 100, 605 µs at 1 000) and Kraken subscribes at depth 100. A
+deeper Kraken book needs the book built for the map less often than every message first.
 
 What it costs: a page with an OKX book open reads about 220 KB every 15 s for each (perpetual and spot), about 50 MB an hour for both, and
 nothing while the tab is hidden. Deeper books also mean more levels in each recorded minute; the recorder's floor (bins under $10K are not
