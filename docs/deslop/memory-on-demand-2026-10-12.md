@@ -92,7 +92,8 @@ All twelve routes compared answered byte for byte (or, for JSON, to 1e-9) the sa
 
 ## Review (Codex, gpt-6.1-sol at max)
 
-Fixed, each with a test that fails on the first version:
+Two kinds of pass, each run twice: one briefed with the invariants above and the code, one Codex's own review of the branch (which ran
+tests of its own). Fixed, each with a test that fails on the version before the fix:
 
 - Columns a failing store never took that its retry queue let go of (past 5,000) left memory as if saved: they were only in memory.
   They now stay (and the ones after them) until the retention passes them (`#lost`), as the week in memory kept them.
@@ -102,7 +103,15 @@ Fixed, each with a test that fails on the first version:
   (which kept them, its write having failed) answered them again. The cutoff moves first; the depth recorder likewise reads what the
   store holds before asking it to prune.
 - A late fill or order for a minute only the store holds, when reading it back failed, was marked seen or counted in the statistics
-  before the read. The read now comes first, so nothing changes until it has worked.
+  before the read. The read now comes first, so nothing changes until it has worked; a batch of orders reads every minute it needs before
+  it counts any (the server drains orders before counting them, so a failure part way used to lose the rest of the batch).
+- A prune whose store failed to say what it holds had already moved the cutoff: `coverage` and the answers disagreed. The extent is read
+  first. Memory begins at a whole minute, so a memory shorter than a minute (tests) still reopens the minute under way.
+- A columns question for a time near 4e23 ms read back an hour at a time from there, and an hour added to such a time leaves it as it
+  was: the server would have spun for ever. Reading back is bounded by the first and last minute the store holds (so an instrument it
+  never recorded reads nothing, and keeps no empty hours: 1,000 made-up names kept 144,000 of them), and the route refuses such times.
+- A Range box over prices no minute traded at read every row of its window back (90 ms for a day of cold minutes) before finding nothing
+  inside; the minute sums, which stay in memory, now say first whether any minute reaches the band.
 
 Left as they are:
 
