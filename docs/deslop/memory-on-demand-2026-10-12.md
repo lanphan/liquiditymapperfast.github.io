@@ -103,8 +103,9 @@ tests of its own). Fixed, each with a test that fails on the version before the 
   (which kept them, its write having failed) answered them again. The cutoff moves first; the depth recorder likewise reads what the
   store holds before asking it to prune.
 - A late fill or order for a minute only the store holds, when reading it back failed, was marked seen or counted in the statistics
-  before the read. The read now comes first, so nothing changes until it has worked; a batch of orders reads every minute it needs before
-  it counts any (the server drains orders before counting them, so a failure part way used to lose the rest of the batch).
+  before the read. The read now comes first, so nothing changes until it has worked. A fill comes again (the feed hands its recent
+  trades over on every pass); an order does not (the server's order builder gives each once), so a batch of orders reads every minute it
+  needs before it counts any, and one it cannot count yet is kept and counted first with the next orders (at most 50,000).
 - A prune whose store failed to say what it holds had already moved the cutoff: `coverage` and the answers disagreed. The extent is read
   first. Memory begins at a whole minute, so a memory shorter than a minute (tests) still reopens the minute under way.
 - A columns question for a time near 4e23 ms read back an hour at a time from there, and an hour added to such a time leaves it as it
