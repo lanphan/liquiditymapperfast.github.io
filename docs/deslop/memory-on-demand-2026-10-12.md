@@ -70,19 +70,51 @@ between views, as a person using the page would):
 stays recently asked, the worst case for the 45 s rule), the week view asked right after the 2-day view is merged afresh each time
 (3.9 s), since the 2-day view's windows fill the cache.
 
-Two throwaway servers on spare ports (fixture feeds, no live venues) over copies of the same recording:
+Two throwaway servers on spare ports (fixture feeds, no live venues, `--max-old-space-size=8192`) over copies of the same recording,
+old = 8f6dfe2, new = this change; "worst wait" is the slowest of small requests sent every 25 ms while the question was answered:
 
 | | old | new |
 |---|---|---|
-| answering after start | 19.5 s | 13.4 s |
-| private memory | 1,900 MB | 907 MB |
-| first zoom out to the week (12 markets at 8 min) | 1.25 s | 3.29 s |
-| worst wait of a small request meanwhile | 1,217 ms | 607 ms |
-| the same zoom again | ~220 ms | ~220 ms |
+| answering after start | 19.5-23.1 s | 13.2-13.4 s |
+| private memory after start | 1,900 MB | 904 MB |
+| first zoom out to the week (12 markets at 8 min) | 1.25-1.65 s, worst wait 1.2-1.6 s | 3.3-4.0 s, worst wait 0.6-0.8 s |
+| the same zoom again | 220-270 ms | 220-245 ms |
+| a past day at 1 min (12 markets) | 247 ms | 282 ms |
+| 2-day view refresh (28 markets, every 30 s, settled) | 3.3-4.0 s, worst wait 1.6-1.8 s | 1.2-1.9 s, worst wait 0.12-0.35 s |
+| private memory after all of the above | 2,114 MB | 1,617 MB |
+
+Over HTTP the refresh also encodes and sends every window, and the cache holds about 27,000 of the 2-day view's 60,000 windows, so the
+rest is merged each time. The old server answered a request's markets in one go, so every other request waited for the whole merge;
+the new one lets them through between markets. The private memory after the questions is not taken after a collection (the heap may
+grow to 8 GB here); the recorders alone, after a collection, hold 589 MB against 1,120 MB (the first table).
+
+All twelve routes compared answered byte for byte (or, for JSON, to 1e-9) the same.
+
+## Review (Codex, gpt-6.1-sol at max)
+
+Fixed, each with a test that fails on the first version:
+
+- Columns a failing store never took that its retry queue let go of (past 5,000) left memory as if saved: they were only in memory.
+  They now stay (and the ones after them) until the retention passes them (`#lost`), as the week in memory kept them.
+- A minute reopened after a restart within it, when it was the only column in memory, was read again from the store beside its open self
+  (counted twice). The open minute now bounds what is read back.
+- A footprint flush whose save failed had already dropped expired minutes from memory but not moved the read-back cutoff, so the store
+  (which kept them, its write having failed) answered them again. The cutoff moves first; the depth recorder likewise reads what the
+  store holds before asking it to prune.
+- A late fill or order for a minute only the store holds, when reading it back failed, was marked seen or counted in the statistics
+  before the read. The read now comes first, so nothing changes until it has worked.
+
+Left as they are:
+
+- The columns route lets other requests run between markets, so a prune or a new sample can fall between two markets of one answer:
+  at the retention's edge one market may still have a minute another has just lost, and the open minute may be one sample further on.
+  Each market's answer is whole; the next refresh agrees.
+- `extent()` reads the (inst, t) index alone, so a stored row whose blob is not whole (the readers leave it out; `save` never writes
+  one) still counts for "recorded since" and the step. Looking at the blobs moves the query to the table: 2 to 11 s instead of 70 ms.
 
 ## Still open
 
-- **The first look at older days reads the disk**: a week view is 3-5 s the first time after a start (it was 2 s), a Range over two
+- **The first look at older days reads the disk**: a week view is 3-5.5 s the first time after a start (it was 1.3-2.2 s), a Range over two
   old days about 2 s. It is once per start for the depth (the cache holds about three days), but the footprint cache holds about a
   day of minutes, so asking again for a Range over two old days reads part of it again (0.8 s; it was 0.2 s). The panel asks again only
   for a live selection, so this is a person selecting the same old days twice.
