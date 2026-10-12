@@ -99,7 +99,10 @@ does not. Now `Hub.loadColumns` keeps, with the columns it holds, where they had
 the windows that ended two minutes or more before the answer, room for the recorder's last sample of a minute and a clock a little off),
 and a refresh asks only from there, while the columns held still cover the view. The worker splices the answer in (`columnsTail`,
 `withTail` in `worker/column-store.ts`: the columns before its start kept, those from it replaced). A view wholly in the past asks nothing
-at all. A test checks, on a real recorder at three steps, that a full answer and a tail asked half an hour later equal one full answer asked
+at all. Windows settle by the source's clock (the bootstrap says it; a page four minutes ahead would otherwise skip the source's open
+minutes for good), the whole-window question is in whole windows at both ends (a cut edge window would now be kept as cut), a market
+answered on another price grid (a server started again) brings the whole window again, and so does an hour (a source lets go of what
+passes its retention, the browser after a day). A test checks, on a real recorder at three steps, that a full answer and a tail asked half an hour later equal one full answer asked
 then. On the copy of the recording, every market in parts of 12:
 
 | view | whole window, every 30 s (before) | tail (now) |
