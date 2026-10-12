@@ -66,7 +66,9 @@ between views, as a person using the page would):
 | value area of an old day | 142 ms | 92 ms | 544 ms | 111 ms |
 | profile of 30 h | 162 ms | 143 ms | 297 ms | 154 ms |
 
-"First" for the new server is the first look after a start: the disk is read once and kept. With the clock frozen instead (every entry
+Measured on c75975b and again on 4ed5e61, after every review fix: 2-day refresh 685 ms, week 63 ms, Range over two old days 990 ms,
+value area 84 ms, profile 143 ms; the same within the run-to-run spread. "First" for the new server is the first look after a start:
+the disk is read once and kept. With the clock frozen instead (every entry
 stays recently asked, the worst case for the 45 s rule), the week view asked right after the 2-day view is merged afresh each time
 (3.9 s), since the 2-day view's windows fill the cache.
 
@@ -92,8 +94,9 @@ All twelve routes compared answered byte for byte (or, for JSON, to 1e-9) the sa
 
 ## Review (Codex, gpt-6.1-sol at max)
 
-Two kinds of pass, each run twice: one briefed with the invariants above and the code, one Codex's own review of the branch (which ran
-tests of its own). Fixed, each with a test that fails on the version before the fix:
+Two kinds of pass: one briefed with the invariants above and the code (five rounds), one Codex's own review of the branch, which ran
+tests and comparisons of its own (seven; the last two found nothing, the last with 8,000 comparisons against the week held in memory).
+Fixed, each with a test that fails on the version before the fix:
 
 - Columns a failing store never took that its retry queue let go of (past 5,000) left memory as if saved: they were only in memory.
   They now stay (and the ones after them) until the retention passes them (`#lost`), as the week in memory kept them.
@@ -110,7 +113,9 @@ tests of its own). Fixed, each with a test that fails on the version before the 
   (an order is counted in the row of its first fill's price). The server offers the footprint its orders on every pass, none drained or
   not, `close()` tries what waits once more, and a waiting fill whose minute the retention has passed is let go with it (counted as seen,
   so a copy handed over again does not bring the minute back). The 5,000 fills that may wait and the feed's last 5,000 trades (the most
-  that can be handed over again) together stay inside the 10,000 fills each instrument's seen set keeps. Only a fill or
+  that can be handed over again) together stay inside the 10,000 fills each instrument's seen set keeps. While any fill waits, every
+  instrument's orders wait (not only that fill's): a read that keeps failing for one minute holds the counting of orders until it works
+  or the retention passes that minute, and past 50,000 waiting orders the newer ones are not counted. Only a fill or
   order more than a day late reads the store at all, so this is a path for a store that fails, not for every day.
 - A prune whose store failed to say what it holds had already moved the cutoff: `coverage` and the answers disagreed. The extent is read
   first. Memory begins at a whole minute (never before the retention), so a memory shorter than a minute (tests) still reopens the
